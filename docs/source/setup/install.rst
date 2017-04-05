@@ -6,11 +6,11 @@ Git
 ~~~
 
 If you want the latest code or even feel like contributing, the code is
-available on `Github <https://github.com/mineo/sir>`_.
+available on `Github <https://github.com/metabrainz/sir>`_.
 
 You can easily clone the code with git::
 
-    git clone git://github.com/mineo/sir.git
+    git clone git://github.com/metabrainz/sir.git
 
 Now you can install it system-wide::
 
@@ -20,7 +20,7 @@ or start hacking on the code. To do that, you'll need to run at least::
 
     python2 setup version
 
-once to generate the file **sir/version.py** which the code needs. This file
+once to generate the file ``sir/version.py`` which the code needs. This file
 does not have to be added into the git repository because it only contains the
 hash of the current git commit, which changes after each commit operation.
 
@@ -39,4 +39,3 @@ The easiest way to run sir at the moment is to use a `virtual environment
 You can now use sir via::
 
     python -m sir
-

@@ -1,6 +1,6 @@
 # Copyright (c) Wieland Hoffmann
 # License: MIT, see LICENSE for details
-from .modelfix import fix
+from sir.wscompat.modelfix import fix
 try:
     # Python 3
     from functools import lru_cache
@@ -15,6 +15,10 @@ BARCODE_NONE = "none"
 
 #: Constant for unknown barcode values
 BARCODE_UNKOWN = "-"
+
+
+#: Time format string
+TIME_FORMAT = "%H:%M:%S"
 
 
 def partialdate_to_string(obj):
@@ -37,6 +41,13 @@ def partialdate_to_string(obj):
                 args.append(obj.day)
 
     return formatstring % tuple(args)
+
+
+def datetime_to_string(obj):
+    """
+    :type obj: :class:`datetime.time`
+    """
+    return obj.strftime(TIME_FORMAT)
 
 
 def convert_iso_3166_1_code_list(obj):
@@ -136,16 +147,13 @@ def convert_artist_credit(obj, include_aliases=True):
     return ac
 
 
-def convert_alias(obj, has_sort_name=True):
+def convert_alias(obj):
     """
     :type obj: :class:`mbdata.models.WorkAlias`
     """
     alias = models.alias()
     alias.set_locale(obj.locale)
-    if has_sort_name:
-        alias.set_sort_name(obj.sort_name)
-    else:
-        alias.set_sort_name(obj.name)
+    alias.set_sort_name(obj.sort_name)
     alias.set_valueOf_(obj.name)
     if obj.type is not None:
         alias.set_type(obj.type.name)
@@ -162,12 +170,12 @@ def convert_alias(obj, has_sort_name=True):
     return alias
 
 
-def convert_alias_list(obj, has_sort_name=True):
+def convert_alias_list(obj):
     """
     :type obj: :class:`[mbdata.models.WorkAlias]`
     """
     alias_list = models.alias_list()
-    [alias_list.add_alias(convert_alias(a, has_sort_name)) for a in obj]
+    [alias_list.add_alias(convert_alias(a)) for a in obj]
     return alias_list
 
 
@@ -304,6 +312,7 @@ def convert_life_span(begin_date, end_date, ended):
         lifespan.set_ended("true")
     else:
         lifespan.set_ended("false")
+
     return lifespan
 
 
@@ -397,19 +406,7 @@ def convert_place(obj):
     if obj.coordinates is not None:
         place.set_coordinates(convert_coordinates(obj.coordinates))
 
-    lifespan = models.life_span()
-
-    if obj.begin_date_year is not None:
-        lifespan.set_begin(partialdate_to_string(obj.begin_date))
-
-    if obj.end_date_year is not None:
-        lifespan.set_end(partialdate_to_string(obj.end_date))
-
-    if obj.ended:
-        lifespan.set_ended("true")
-    else:
-        lifespan.set_ended("false")
-
+    lifespan = convert_life_span(obj.begin_date, obj.end_date, obj.ended)
     place.set_life_span(lifespan)
 
     if obj.type is not None:
@@ -624,8 +621,8 @@ def convert_artist(obj):
     if obj.comment is not None:
         artist.set_disambiguation(obj.comment)
 
-    if artist.gender is not None:
-        artist.set_gender(artist.gender.name)
+    if obj.gender is not None:
+        artist.set_gender(obj.gender.name.lower())
 
     if obj.type is not None:
         artist.set_type(obj.type.name)
@@ -641,19 +638,7 @@ def convert_artist(obj):
     if obj.end_area is not None:
         artist.set_end_area(convert_area_inner(obj.end_area))
 
-    lifespan = models.life_span()
-
-    if obj.begin_date_year is not None:
-        lifespan.set_begin(partialdate_to_string(obj.begin_date))
-
-    if obj.end_date_year is not None:
-        lifespan.set_end(partialdate_to_string(obj.end_date))
-
-    if obj.ended:
-        lifespan.set_ended("true")
-    else:
-        lifespan.set_ended("false")
-
+    lifespan = convert_life_span(obj.begin_date, obj.end_date, obj.ended)
     artist.set_life_span(lifespan)
 
     if len(obj.aliases) > 0:
@@ -720,20 +705,12 @@ def convert_event(obj):
     if obj.type is not None:
         event.set_type(obj.type.name)
 
-    lifespan = models.life_span()
+    lifespan = convert_life_span(obj.begin_date, obj.end_date, obj.ended)
+    if lifespan.get_begin() is not None or lifespan.get_end() is not None:
+        event.set_life_span(lifespan)
 
-    if obj.begin_date_year is not None:
-        lifespan.set_begin(partialdate_to_string(obj.begin_date))
-
-    if obj.end_date_year is not None:
-        lifespan.set_end(partialdate_to_string(obj.end_date))
-
-    if obj.ended:
-        lifespan.set_ended("true")
-    else:
-        lifespan.set_ended("false")
-
-    event.set_life_span(lifespan)
+    if obj.time is not None:
+        event.set_time(datetime_to_string(obj.time))
 
     return event
 
@@ -752,6 +729,9 @@ def convert_instrument(obj):
 
     if obj.type is not None:
         instrument.set_type(obj.type.name)
+
+    if len(obj.aliases) > 0:
+        instrument.set_alias_list(convert_alias_list(obj.aliases))
 
     return instrument
 
@@ -775,10 +755,13 @@ def convert_label(obj):
 
     if len(obj.aliases) > 0:
         label.set_alias_list(
-            convert_alias_list(obj.aliases, has_sort_name=False))
+            convert_alias_list(obj.aliases))
 
     if len(obj.ipis) > 0:
         label.set_ipi_list(convert_ipi_list(obj.ipis))
+
+    lifespan = convert_life_span(obj.begin_date, obj.end_date, obj.ended)
+    label.set_life_span(lifespan)
 
     if len(obj.tags) > 0:
         label.set_tag_list(convert_tag_list(obj.tags))
@@ -934,10 +917,11 @@ def convert_standalone_tag(obj):
 
 def convert_url(obj):
     """
-    :type obj: :class'mbdata_models.URL'
+    :type obj: :class`mbdata_models.URL`
     """
-    url = models.url()
-
+    url = models.url(id=obj.gid, resource=obj.url)
+    # obj does not seem to have any links set, so we can't include any
+    # relation lists at this time
     return url
 
 

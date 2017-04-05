@@ -3,14 +3,15 @@
 import argparse
 import logging
 import multiprocessing
+import ConfigParser
 
-
-from . import config
-from .amqp.handler import watch
-from .amqp.setup import setup_rabbitmq
-from .indexing import reindex
-from .schema import SCHEMA
-from .trigger_generation import generate_triggers
+import config
+from . import init_raven_client
+from sir.amqp.handler import watch
+from sir.amqp.setup import setup_rabbitmq
+from sir.indexing import reindex
+from sir.schema import SCHEMA
+from sir.trigger_generation import generate_triggers
 
 
 logger = logging.getLogger("sir")
@@ -44,6 +45,11 @@ def main():
                                          default="sql/CreateFunctions.sql",
                                          help="The filename to save the "
                                          "functions into")
+    generate_trigger_parser.add_argument('-bid', '--broker-id',
+                                         action="store",
+                                         default="1",
+                                         help="ID of the AMQP broker row "
+                                         "in the database.")
 
     amqp_setup_parser = subparsers.add_parser("amqp_setup",
                                               help="Set up AMQP exchanges and "
@@ -97,6 +103,10 @@ def main():
             sqltimelogger.debug("Total Time: %f", total)
 
     config.read_config()
+    try:
+        init_raven_client(config.CFG.get("sentry", "dsn"))
+    except ConfigParser.Error as e:
+        logger.info("Skipping Raven client initialization. Configuration issue: %s", e)
     func = args.func
     args = vars(args)
     func(args)

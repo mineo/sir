@@ -1,10 +1,10 @@
-# Copyright (c) 2014, 2015 Wieland Hoffmann
+# Copyright (c) 2014, 2015, 2016 Wieland Hoffmann
 # License: MIT, see LICENSE for details
-from . import queryext
-from . import modelext
-from . import transformfuncs as tfs
-from .searchentities import SearchEntity as E, SearchField as F
-from ..wscompat import convert
+from sir.schema import queryext
+from sir.schema import modelext
+from sir.schema import transformfuncs as tfs
+from sir.schema.searchentities import SearchEntity as E, SearchField as F
+from sir.wscompat import convert
 from collections import OrderedDict
 from mbdata import models
 
@@ -109,7 +109,7 @@ SearchEvent = E(modelext.CustomEvent, [
     convert.convert_event,
     extrapaths=["aliases.type.name", "aliases.type.id", "aliases.sort_name",
                 "aliases.locale", "aliases.primary_for_locale",
-                "aliases.begin_date", "aliases.end_date"]
+                "aliases.begin_date", "aliases.end_date", "tags.count", "time"]
 )
 
 SearchInstrument = E(modelext.CustomInstrument, [
@@ -121,7 +121,10 @@ SearchInstrument = E(modelext.CustomInstrument, [
     F("type", "type.name")
 ],
     1.5,
-    convert.convert_instrument
+    convert.convert_instrument,
+    extrapaths=["aliases.type.name", "aliases.type.id", "aliases.sort_name",
+                "aliases.locale", "aliases.primary_for_locale",
+                "aliases.begin_date", "aliases.end_date"]
 )
 
 
@@ -147,7 +150,7 @@ SearchLabel = E(modelext.CustomLabel, [
     extrapaths=["aliases.type.name", "aliases.type.id", "aliases.sort_name",
                 "aliases.locale", "aliases.primary_for_locale",
                 "aliases.begin_date", "aliases.end_date",
-                "area.gid"
+                "area.gid", "area.type.name", "tags.count"
                 ]
 )
 
@@ -440,7 +443,8 @@ SearchWork = E(modelext.CustomWork, [
                 "aliases.sort_name", "aliases.locale",
                 "aliases.primary_for_locale",
                 "artist_links.link.link_type.name",
-                "artist_links.link.attributes.attribute_type.name"]
+                "artist_links.link.attributes.attribute_type.name",
+                "tags.count"]
 )
 
 
@@ -473,7 +477,4 @@ SCHEMA = OrderedDict(sorted({
     "tag": SearchTag,
     "work": SearchWork,
     "url": SearchUrl,
-}.items(),
-    key=lambda tuple: tuple[0]
-
-))
+}.items(), key=lambda val: val[0]))

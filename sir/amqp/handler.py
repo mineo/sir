@@ -2,14 +2,15 @@
 # coding: utf-8
 # Copyright (c) 2014, 2015 Wieland Hoffmann
 # License: MIT, see LICENSE for details
-from . import message
-from ..schema import SCHEMA
-from ..indexing import send_data_to_solr
-from ..util import (create_amqp_connection,
-                    db_session,
-                    db_session_ctx,
-                    solr_connection,
-                    solr_version_check)
+from sir.amqp import message
+from sir import get_sentry, config
+from sir.schema import SCHEMA
+from sir.indexing import send_data_to_solr
+from sir.util import (create_amqp_connection,
+                      db_session,
+                      db_session_ctx,
+                      solr_connection,
+                      solr_version_check)
 from amqp.exceptions import AMQPError
 from functools import partial, wraps
 from logging import getLogger
@@ -59,10 +60,15 @@ def callback_wrapper(f):
             parsed_message = message.Message.from_amqp_message(queue, msg)
             f(self=self, parsed_message=parsed_message)
         except Exception as exc:
+            get_sentry().captureException(extra={"msg": msg, "attributes": msg.__dict__})
             logger.error(exc)
 
             msg.channel.basic_reject(msg.delivery_tag, requeue=False)
 
+            if not hasattr(msg, "application_headers"):
+                get_sentry().captureMessage("Message doesn't have \"application_headers\" attribute",
+                                            extra={"msg": msg, "attributes": msg.__dict__})
+                return
             retries_remaining = msg.application_headers.get("mb-retries",
                                                             _DEFAULT_MB_RETRIES)
             routing_key = msg.delivery_info["routing_key"]
@@ -95,6 +101,7 @@ class Handler(object):
 
     @callback_wrapper
     def index_callback(self, parsed_message):
+        logger.debug("Processing `index` message for entity: %s" % parsed_message.entity_type)
         entity = SCHEMA[parsed_message.entity_type]
         converter = entity.query_result_to_dict
         query = entity.query
@@ -108,6 +115,7 @@ class Handler(object):
 
     @callback_wrapper
     def delete_callback(self, parsed_message):
+        logger.debug("Processing `delete` message")
         logger.debug("Deleting {entity_type}: {ids}".format(
             entity_type=parsed_message.entity_type,
             ids=parsed_message.ids))
@@ -115,6 +123,7 @@ class Handler(object):
 
 
 def _should_retry(exc):
+    logger.debug("Retrying...")
     logger.exception(exc)
     if isinstance(exc, AMQPError) or isinstance(exc, socket_error):
         logger.info("Retrying in %i seconds", _RETRY_WAIT_SECS)
@@ -125,23 +134,34 @@ def _should_retry(exc):
 
 @retry(wait_fixed=_RETRY_WAIT_SECS * 1000, retry_on_exception=_should_retry)
 def _watch_impl():
-    conn = create_amqp_connection()
-    logger.info("Connection to RabbitMQ established")
-    ch = conn.channel()
-
-    handler = Handler()
 
     def add_handler(queue, f):
         logger.info("Adding a callback to %s", queue)
         handler = partial(f, queue=queue)
         ch.basic_consume(queue, callback=handler)
 
-    add_handler("search.index", handler.index_callback)
-    add_handler("search.delete", handler.delete_callback)
+    try:
+        conn = create_amqp_connection()
+        logger.info("Connection to RabbitMQ established")
+        logger.debug("Heartbeat value: %s" % conn.heartbeat)
+        ch = conn.channel()
+        # Keep in mind that `prefetch_size` is not supported by the version of RabbitMQ that
+        # we are currently using (https://www.rabbitmq.com/specification.html).
+        # Limits are requires because consumer connection might time out when receive buffer
+        # is full (http://stackoverflow.com/q/35438843/272770).
+        prefetch_count = config.CFG.getint("rabbitmq", "prefetch_count")
+        ch.basic_qos(prefetch_size=0, prefetch_count=prefetch_count, a_global=True)
 
-    while ch.callbacks:
-        ch.wait()
+        handler = Handler()
+        add_handler("search.index", handler.index_callback)
+        add_handler("search.delete", handler.delete_callback)
 
+        while True:
+            logger.debug("Waiting for a message")
+            conn.drain_events()
+    except Exception:
+        get_sentry().captureException()
+        raise
 
 def watch(args):
     """
@@ -152,6 +172,7 @@ def watch(args):
     try:
         create_amqp_connection()
     except socket_error as e:
+        get_sentry().captureException()
         logger.error("Couldn't connect to RabbitMQ, check your settings")
         logger.error("The error was: %s", e)
         return
@@ -159,5 +180,6 @@ def watch(args):
     try:
         _watch_impl()
     except URLError as e:
+        get_sentry().captureException()
         logger.info("Connecting to Solr failed: %s", e)
         return

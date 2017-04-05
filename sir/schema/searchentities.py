@@ -1,7 +1,7 @@
 # Copyright (c) 2014, 2015 Lukas Lalinsky, Wieland Hoffmann
 # License: MIT, see LICENSE for details
-from .. import config
-from ..querying import iterate_path_values
+from sir import config
+from sir.querying import iterate_path_values
 from collections import defaultdict
 from functools import partial
 from itertools import chain
@@ -238,5 +238,4 @@ class SearchEntity(object):
             not None):
             data["_store"] = tostring(self.compatconverter(obj).to_etree())
 
-        logger.debug("Data: %s", data)
         return data
